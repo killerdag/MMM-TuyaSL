@@ -5,96 +5,92 @@
  * MIT Licensed.
  */
 
-var NodeHelper = require("node_helper");
+const NodeHelper = require("node_helper");
 const axios = require('axios');
 const qs = require('qs');
 const fs = require('fs');
 
-//let logLevel;
-//let client;
-var arrDevices = [];
-var arrDevicesItem;
-var accessToken;
-var loginDataResult = {success: false};
-var regionTuya;
+let arrDevices = [];
+let loginDataResult = { success: false };
+let regionTuya;
+
+// Funzione per mappare countryCode a regionTuya
+function mapCountryToRegion(countryCode) {
+  const euCountries = ['IT', 'ID', 'DE', 'FR', 'ES', 'UK', 'NL', 'BE', 'CH', 'SE', 'NO', 'DK', 'FI', 'AT', 'IE', 'PT', 'PL', 'GR'];
+  const usCountries = ['US', 'CA', 'MX', 'BR'];
+  const cnCountries = ['CN'];
+
+  if (euCountries.includes(countryCode.toUpperCase())) {
+    return 'eu';
+  } else if (usCountries.includes(countryCode.toUpperCase())) {
+    return 'us';
+  } else if (cnCountries.includes(countryCode.toUpperCase())) {
+    return 'cn';
+  } else {
+    return 'eu'; // Default
+  }
+}
 
 module.exports = NodeHelper.create({
-	// Subclass start method.
-	start: function() {
-		console.log("Starting node_helper.js for MMM-TuyaSL.");
-    regionTuya = 'eu';
-	},
+  // Subclass start method.
+  start: function() {
+    console.log("Starting node_helper.js for MMM-TuyaSL.");
+    // Mappa countryCode a regionTuya
+    const countryCode = this.config.countryCode.toUpperCase();
+    regionTuya = mapCountryToRegion(countryCode);
+    console.log(`Using regionTuya: ${regionTuya}`);
+  },
 
   dump: function(v, s) {
     s = s || 1;
-    var t = '';
+    let t = '';
     switch (typeof v) {
       case "object":
         t += "\n";
-        for (var i in v) {
-          t += Array(s).join(" ")+i+": ";
-          t += this.dump(v[i], s+3);
+        for (let i in v) {
+          t += Array(s).join(" ") + i + ": ";
+          t += this.dump(v[i], s + 3);
         }
         break;
       default: //number, string, boolean, null, undefined
-        t += v+" ("+typeof v+")\n";
+        t += v + " (" + typeof v + ")\n";
         break;
     }
     return t;
   },
 
   login: function (config, params) {
-    //console.log('DEBUG: Login to TUYA...');
-    that = this;
-    //console.log(`config.userName : ${config.userName}`);
-    //console.log(`config.password : ${config.password}`);
-    //console.log(`config.timeout  : ${config.timeout}`);
+    const that = this;
 
     try {
       async function loginTuya() {
-        //console.log('DEBUG: here');
-        //console.log(`DEBUG: config.userName : ${config.userName}`);
-        //console.log(`DEBUG: config.password : ${config.password}`);
-        //console.log(`DEBUG: config.timeout  : ${config.timeout}`);
         let configAx = {
-          headers: {"Content-type" : "application/x-www-form-urlencoded", "User-Agent": "Mozilla/5.0"},
+          headers: {
+            "Content-type": "application/x-www-form-urlencoded",
+            "User-Agent": "Mozilla/5.0"
+          },
           responseType: "json",
           timeout: config.timeout
         };
 
         let paramsAx = {
           "userName": config.userName,
-		      "password": config.password,
-		      "countryCode": config.countryCode,
-		      "bizType": config.bizType,
-		      "from": config.from
+          "password": config.password,
+          "countryCode": config.countryCode,
+          "bizType": config.bizType,
+          "from": config.from
         };
 
         try {
-          let res = await axios.post('https://px1.tuyaeu.com/homeassistant/auth.do', qs.stringify(paramsAx), configAx);
+          let res = await axios.post(`https://px1.tuya${regionTuya}.com/homeassistant/auth.do`, qs.stringify(paramsAx), configAx);
 
-          // debugging
-          //console.log('DEBUG: after request for login');
-          //console.log(`DEBUG: Status code: ${res.status}`);
-          //console.log(`DEBUG: Status text: ${res.statusText}`);
-          //console.log(`DEBUG: data       : ${res.data}`);
-
-          if (res.status == '200') {
-            // check is response is expected (accessToken)
+          if (res.status === 200) {
+            // Verifica se la risposta è positiva
             if (res.data.responseStatus) {
-              // got failed response
+              // Risposta non riuscita
               console.log(`ERROR: Got unsuccessful response (${res.data.errorMsg})`);
-            }
-            else {
-              // assume it is a successful response
-              // debugging
-              //console.log('DEBUG: before assignment');
-              //console.log(`DEBUG: success data (accessToken  = [${res.data.access_token}])`);
-              //console.log(`DEBUG: success data (refreshToken = [${res.data.refresh_token}])`);
-              //console.log(`DEBUG: success data (tokenType    = [${res.data.token_type}])`);
-              //console.log(`DEBUG: success data (expiresIn    = [${res.data.expires_in}])`);
-
-              // save the response
+            } else {
+              // Risposta riuscita
               loginDataResult = {
                 "access_token": res.data.access_token,
                 "refresh_token": res.data.refresh_token,
@@ -103,26 +99,18 @@ module.exports = NodeHelper.create({
                 "success": true
               }
 
-              // debugging
-              //console.log('DEBUG: after assignment');
-              //console.log(`DEBUG: success data (accessToken  = [${loginDataResult.access_token}])`);
-              //console.log(`DEBUG: success data (refreshToken = [${loginDataResult.refresh_token}])`);
-              //console.log(`DEBUG: success data (tokenType    = [${loginDataResult.token_type}])`);
-              //console.log(`DEBUG: success data (expiresIn    = [${loginDataResult.expires_in}])`);
-
-              // save accessToken to file
+              // Salva accessToken nel file temporaneo
               try {
                 fs.writeFileSync('/tmp/mmm-tuyasl-token.txt', loginDataResult.access_token);
-                //console.log('DEBUG: write accessToken [' + loginDataResult.access_token + '] succesfully');
+                console.log('DEBUG: accessToken salvato correttamente.');
               }
               catch (e) {
-                console.log('ERROR: ', e.stack);
+                console.log('ERROR: Impossibile scrivere il token nel file: ', e.stack);
               }
             }
-          }
-          else {
-            // http response is invalid
-            console.log(`ERROR: HTTP response is not successfull (${res.status}:${res.statusText})`);
+          } else {
+            // Risposta HTTP non valida
+            console.log(`ERROR: HTTP response is not successful (${res.status}:${res.statusText})`);
           }
         }
         catch(e) {
@@ -141,129 +129,116 @@ module.exports = NodeHelper.create({
 
   search: function (config, params) {
     console.log('Getting device list...');
-    // clear-up arrDevices
-    while (arrDevices.length > 0) {
-      arrDevices.pop();
-    }
-    that = this;
+    // Pulisci arrDevices
+    arrDevices = [];
+    const that = this;
 
-    // get saved accessToken
+    // Ottieni accessToken salvato
     try {
-      var data = fs.readFileSync('/tmp/mmm-tuyasl-token.txt', 'ascii');
-      that.accessToken = data.toString().replace(/\r?\n|\r/g, "");
-      //console.log('DEBUG: read accessToken ['+that.accessToken+']');
+      const data = fs.readFileSync('/tmp/mmm-tuyasl-token.txt', 'ascii');
+      that.accessToken = data.toString().trim();
+      console.log(`DEBUG: accessToken letto: ${that.accessToken}`);
     }
     catch (e) {
-      console.log('ERROR:', e.stack);
+      console.log('ERROR: Impossibile leggere accessToken:', e.stack);
+      return;
     }
-
-    //console.log('DEBUG: saved accessToken ['+that.accessToken+']');
 
     try {
       async function getDeviceList() {
-        let configAx = {
-          headers: {"Content-type" : "application/json", "User-Agent": "Mozilla/5.0"},
+        const configAx = {
+          headers: {
+            "Content-type": "application/json",
+            "User-Agent": "Mozilla/5.0"
+          },
           responseType: "json",
           timeout: config.timeout
         };
 
-        //console.log('DEBUG: accessToken ['+that.accessToken+']');
-        let params = '{"header": {"name": "Discovery", "namespace": "discovery", "payloadVersion": 1}, "payload": {"accessToken": "' + that.accessToken + '"}}';
+        const paramsPayload = {
+          "header": {
+            "name": "Discovery",
+            "namespace": "discovery",
+            "payloadVersion": 1
+          },
+          "payload": {
+            "accessToken": that.accessToken
+          }
+        };
 
         try {
-          let res = await axios.post('https://px1.tuya' + regionTuya + '.com/homeassistant/skill', params, configAx);
-          console.log(`DEBUG: regionTuya     : ${regionTuya}`);
-          if (regionTuya == 'eu') regionTuya = 'us';
-          else if (regionTuya == 'us') regionTuya = 'cn';
-          else if (regionTuya == 'cn') regionTuya = 'eu';
+          const res = await axios.post(`https://px1.tuya${regionTuya}.com/homeassistant/skill`, paramsPayload, configAx);
+          console.log(`DEBUG: regionTuya: ${regionTuya}`);
 
-          //console.log(`DEBUG: Status code    : ${res.status}`);
-          //console.log(`DEBUG: Status text    : ${res.statusText}`);
-          //console.log(`DEBUG: Request method : ${res.request.method}`);
-          //console.log(`DEBUG: Path           : ${res.request.path}`);
-          //console.log(`DEBUG: Date           : ${res.headers.date}`);
-          //console.log(`DEBUG: Data           : ${res.data}`);
-          //console.log(`DEBUG: config         : ${res.config}`);
-          //console.log('Data.request: ' + this.dump(res.request));
-          //console.log(`Data: ` + (${res.data}).toSource());
-          //console.log(`DEBUG: Data.code      : ${res.data.header.code}`);
-          //console.log(`DEBUG: Data.payloadVersion: ${res.data.header.payloadVersion}`);
-
-          if ("header" in res.data && "code" in res.data.header && res.data.header.code === 'SUCCESS') {
+          if (res.data && res.data.header && res.data.header.code === 'SUCCESS') {
             try {
-              function myDeviceItem(value, index, array) {
-                deviceOnline = value.data.online;
-                //deviceOnline = (value.data.online === "false" ? false : value.data.online);
-                deviceState = (value.data.state == "true" ? true : (value.data.state == "false" ? false : value.data.state));
-                arrDevicesItem = {alias:value.name, type:value.dev_type, online:deviceOnline, on_off:deviceState};
-                arrDevices.push(arrDevicesItem);
-              }
-
-              res.data.payload.devices.forEach(myDeviceItem);
+              res.data.payload.devices.forEach(device => {
+                const deviceOnline = device.data.online === "true";
+                const deviceState = device.data.state === "true" ? true : (device.data.state === "false" ? false : null);
+                const deviceItem = {
+                  alias: device.name,
+                  type: device.dev_type,
+                  online: deviceOnline,
+                  on_off: deviceState
+                };
+                arrDevices.push(deviceItem);
+              });
               console.log(`DEBUG: Number of Devices = ${arrDevices.length}`);
-              //console.log(`DEBUG: Device-List ${that.dump(arrDevices)}`);
             }
             catch (e) {
-              console.log('ERROR: ' + e.stack);
+              console.log('ERROR: Durante l\'elaborazione dei dispositivi:', e.stack);
             }
           }
           else {
-            console.log(`ERROR: getDeviceList is failed (${res.data.header.code})`);
-            // notif to retry login (and get new accessToken)
-            if (res.data.header.code == 'InvalidAccessTokenError') {
-              that.sendSocketNotification('TUYASL_NETWORK_LOGIN_RESULT', {loginData: {success:false}});
+            console.log(`ERROR: getDeviceList failed (${res.data.header.code})`);
+            // Notifica per tentare nuovamente il login e ottenere un nuovo accessToken
+            if (res.data.header.code === 'InvalidAccessTokenError') {
+              that.sendSocketNotification('TUYASL_NETWORK_LOGIN_RESULT', { loginData: { success: false } });
             }
           }
         }
         catch (e) {
-          console.log('ERROR: ' + e.stack);
+          console.log('ERROR: ', e.stack);
         }
       }
 
       getDeviceList();
 
     } catch (e) {
-      console.log('ERROR: ' + e.stack);
+      console.log('ERROR: ', e.stack);
     }
   },
 
-	socketNotificationReceived: function(notification, payload) {
-    console.log(this.name + " node helper received a socket notification: " + notification + " - Payload: " + payload);
-    if (notification == "TUYASL_NETWORK_LOGIN") {
-      //console.log("DEBUG: TuyaSL NETWORK LOGIN");
+  socketNotificationReceived: function(notification, payload) {
+    console.log("MMM-TuyaSL node helper received a socket notification: " + notification + " - Payload: " + JSON.stringify(payload));
+    if (notification === "TUYASL_NETWORK_LOGIN") {
       this.login(payload.config, {});
-      var that = this;
+      const that = this;
 
       function sendInfoLogin() {
-        that.sendSocketNotification('TUYASL_NETWORK_LOGIN_RESULT', {loginData: loginDataResult});
+        that.sendSocketNotification('TUYASL_NETWORK_LOGIN_RESULT', { loginData: loginDataResult });
       }
 
       setTimeout(sendInfoLogin, payload.config.timeout + 100);
-      //console.log("DEBUG: TuyaSL LOGIN END");
     }
-    else if (notification == "TUYASL_NETWORK_SEARCH") {
-      //console.log("DEBUG: TuyaSL SEARCH BEGIN");
+    else if (notification === "TUYASL_NETWORK_SEARCH") {
       this.search(payload.config, {});
-      var that = this;
+      const that = this;
 
       function sendInfo() {
         if (arrDevices.length >= 1) {
-          //console.log("DEBUG: 1-PRINT OUTPUT LENGTH = " + arrDevices.length);
-          arrDevices.sort(function(a, b) {
-            var x = a.alias.toLowerCase();
-            var y = b.alias.toLowerCase();
-            if (x < y) {return -1;}
-            if (x > y) {return 1;}
+          arrDevices.sort((a, b) => {
+            const x = a.alias.toLowerCase();
+            const y = b.alias.toLowerCase();
+            if (x < y) return -1;
+            if (x > y) return 1;
+            return 0;
           });
-          //console.log("DEBUG: arrDevices = [" + this.dump(arrDevices) + "]");
-          //console.log("DEBUG: 2-PRINT OUTPUT LENGTH = " + arrDevices.length);
         }
-        that.sendSocketNotification('TUYASL_NETWORK_SEARCH_RESULT', {devices: arrDevices});
+        that.sendSocketNotification('TUYASL_NETWORK_SEARCH_RESULT', { devices: arrDevices });
       }
 
       setTimeout(sendInfo, payload.config.timeout + 100);
-      //console.log('DEBUG: ' + payload.config.timeout + " ms -> CHECK arrDevices-" + arrDevices.length);
-      //console.log("DEBUG: TuyaSL SEARCH END");
     }
-	},
+  },
 });
